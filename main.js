@@ -15,6 +15,7 @@ const {
 
 const canvas = document.querySelector("#game");
 const wrap = document.querySelector(".game-wrap");
+const dropZoneEl = document.querySelector("#dropZone");
 const scoreEl = document.querySelector("#score");
 const bestEl = document.querySelector("#best");
 const nextCatEl = document.querySelector("#nextCat");
@@ -92,6 +93,7 @@ let shakeUntil = 0;
 let shakePower = 0;
 let gameStarted = false;
 let isPaused = false;
+let isAiming = false;
 let isStarting = false;
 let titleTimers = [];
 let audioSettings = loadAudioSettings();
@@ -392,6 +394,7 @@ function setAim(clientOrLocalX) {
   const r = CAT_TYPES[nextType].radius;
   pointerX = clamp(clientOrLocalX, r + 8, width - r - 8);
   aimEl.style.left = `${pointerX}px`;
+  dropZoneEl?.style.setProperty("--drop-aim", `${(pointerX / width) * 100}%`);
 }
 
 function dropCat() {
@@ -408,10 +411,46 @@ function dropCat() {
   }, 520);
 }
 
-function handlePointer(event) {
-  const rect = wrap.getBoundingClientRect();
-  const x = (event.touches ? event.touches[0].clientX : event.clientX) - rect.left;
-  setAim(x);
+function setAimFromDropZone(event) {
+  if (!dropZoneEl || !width) return;
+  const rect = dropZoneEl.getBoundingClientRect();
+  const ratio = clamp((event.clientX - rect.left) / rect.width, 0, 1);
+  setAim(ratio * width);
+}
+
+function canUseDropZone() {
+  return gameStarted && !isPaused && !isGameOver && canDrop && !isStarting;
+}
+
+function cancelDropZoneAim() {
+  isAiming = false;
+  dropZoneEl?.classList.remove("is-active");
+}
+
+function startDropZoneAim(event) {
+  if (!canUseDropZone()) return;
+  event.preventDefault();
+  isAiming = true;
+  dropZoneEl.classList.add("is-active");
+  dropZoneEl.setPointerCapture?.(event.pointerId);
+  setAimFromDropZone(event);
+}
+
+function moveDropZoneAim(event) {
+  if (!isAiming) return;
+  event.preventDefault();
+  setAimFromDropZone(event);
+}
+
+function finishDropZoneAim(event) {
+  if (!isAiming) return;
+  event.preventDefault();
+  setAimFromDropZone(event);
+  cancelDropZoneAim();
+  if (dropZoneEl.hasPointerCapture?.(event.pointerId)) {
+    dropZoneEl.releasePointerCapture(event.pointerId);
+  }
+  dropCat();
 }
 
 function handleCollisions(event) {
@@ -489,6 +528,7 @@ function checkGameOver() {
 function endGame() {
   isGameOver = true;
   canDrop = false;
+  cancelDropZoneAim();
   pauseButton.hidden = true;
   playSe("gameOver");
   finalScoreEl.textContent = `SCORE ${score}`;
@@ -519,6 +559,7 @@ function restart() {
 
 function setPaused(paused) {
   isPaused = paused;
+  if (paused) cancelDropZoneAim();
   if (paused) {
     pausePhysics();
   } else {
@@ -1068,14 +1109,11 @@ function resizeGame() {
   });
 }
 
-wrap.addEventListener("pointerdown", (event) => {
-  if (event.target.closest("button") || !pauseScreenEl.classList.contains("hidden") || !messageEl.classList.contains("hidden")) {
-    return;
-  }
-  handlePointer(event);
-  dropCat();
-}, { passive: true });
-wrap.addEventListener("pointermove", handlePointer, { passive: true });
+dropZoneEl?.addEventListener("pointerdown", startDropZoneAim, { passive: false });
+dropZoneEl?.addEventListener("pointermove", moveDropZoneAim, { passive: false });
+dropZoneEl?.addEventListener("pointerup", finishDropZoneAim, { passive: false });
+dropZoneEl?.addEventListener("pointercancel", cancelDropZoneAim, { passive: true });
+dropZoneEl?.addEventListener("lostpointercapture", cancelDropZoneAim, { passive: true });
 restartButton.addEventListener("click", () => {
   playSe("button");
   restart();

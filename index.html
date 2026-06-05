@@ -77,15 +77,10 @@
       </section>
 
       <section class="controls" aria-label="操作">
-        <div class="audio-controls" aria-label="音量設定" hidden>
-          <label>
-            <span>BGM</span>
-            <input type="range" min="0" max="1" step="0.05" value="0.45" />
-          </label>
-          <label>
-            <span>SE</span>
-            <input type="range" min="0" max="1" step="0.05" value="0.7" />
-          </label>
+        <div id="dropZone" class="drop-zone" role="button" tabindex="0" aria-label="猫を落とす">
+          <div class="drop-zone-rail" aria-hidden="true">
+            <span class="drop-zone-thumb"></span>
+          </div>
         </div>
       </section>
     </main>
