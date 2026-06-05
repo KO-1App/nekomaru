@@ -28,7 +28,6 @@ const titleMascotOpenEl = document.querySelector("#titleMascotOpen");
 const titleMascotSmileEl = document.querySelector("#titleMascotSmile");
 const titleBestEl = document.querySelector("#titleBest");
 const startGameButton = document.querySelector("#startGame");
-const dropButton = document.querySelector("#drop");
 const restartButton = document.querySelector("#restart");
 const toggleBgmButton = document.querySelector("#toggleBgm");
 const toggleSeButton = document.querySelector("#toggleSe");
@@ -36,27 +35,33 @@ const titleToggleBgmButton = document.querySelector("#titleToggleBgm");
 const titleToggleSeButton = document.querySelector("#titleToggleSe");
 const bgmVolumeInput = document.querySelector("#bgmVolume");
 const seVolumeInput = document.querySelector("#seVolume");
+const pauseButton = document.querySelector("#pauseButton");
+const pauseScreenEl = document.querySelector("#pauseScreen");
+const resumeGameButton = document.querySelector("#resumeGame");
+const retryGameButton = document.querySelector("#retryGame");
+const backToTitleButton = document.querySelector("#backToTitle");
 
 const STORAGE_KEY = "nekomaru.bestScore";
 const AUDIO_STORAGE_KEY = "nekomaru.audioSettings";
 const DROP_Y = 34;
-const GAME_OVER_Y = 82;
+const GAME_OVER_Y = 160;
 const CAT_TYPES = [
-  { name: "白猫", radius: 24, color: "#fff9ef", text: "#4b3a2e", score: 1, image: "01-white-cat.png" },
-  { name: "黒猫", radius: 28, color: "#2b2828", text: "#ffffff", score: 3, image: "02-black-cat.png" },
-  { name: "ハチワレ", radius: 33, color: "#8fc9ff", text: "#17334a", score: 6, image: "03-hachiware.png" },
-  { name: "茶トラ", radius: 38, color: "#d9822b", text: "#ffffff", score: 10, image: "04-orange-tabby.png" },
-  { name: "キジトラ", radius: 44, color: "#8b7656", text: "#ffffff", score: 15, image: "05-brown-tabby.png" },
-  { name: "サバトラ", radius: 51, color: "#9eabb7", text: "#1f2a33", score: 21, image: "06-silver-tabby.png" },
-  { name: "三毛猫", radius: 59, color: "#f1b25f", text: "#49301c", score: 28, image: "07-calico.png" },
-  { name: "長毛猫", radius: 70, color: "#e8d5bd", text: "#4a3728", score: 36, image: "08-longhair.png" },
-  { name: "超もふもふ猫", radius: 82, color: "#d7b4ec", text: "#42255b", score: 45, image: "09-ultra-fluffy.png" },
-  { name: "ねこだま王", radius: 96, color: "#f2d45c", text: "#4d3900", score: 60, image: "10-nekodama-king.png" },
+  { name: "白猫", radius: 25, color: "#fff9ef", text: "#4b3a2e", score: 1, image: "01-white-cat.png" },
+  { name: "黒猫", radius: 30, color: "#2b2828", text: "#ffffff", score: 3, image: "02-black-cat.png" },
+  { name: "ハチワレ", radius: 35, color: "#8fc9ff", text: "#17334a", score: 6, image: "03-hachiware.png" },
+  { name: "茶トラ", radius: 40, color: "#d9822b", text: "#ffffff", score: 10, image: "04-orange-tabby.png" },
+  { name: "キジトラ", radius: 46, color: "#8b7656", text: "#ffffff", score: 15, image: "05-brown-tabby.png" },
+  { name: "サバトラ", radius: 54, color: "#9eabb7", text: "#1f2a33", score: 21, image: "06-silver-tabby.png" },
+  { name: "三毛猫", radius: 62, color: "#f1b25f", text: "#49301c", score: 28, image: "07-calico.png" },
+  { name: "長毛猫", radius: 74, color: "#e8d5bd", text: "#4a3728", score: 36, image: "08-longhair.png" },
+  { name: "超もふもふ猫", radius: 86, color: "#d7b4ec", text: "#42255b", score: 45, image: "09-ultra-fluffy.png" },
+  { name: "ねこだま王", radius: 102, color: "#f2d45c", text: "#4d3900", score: 60, image: "10-nekodama-king.png" },
 ];
 
 const LOCAL_CAT_ASSET_DIR = "assets/cats/";
 const GENERATED_CAT_ASSET_DIR = "http://127.0.0.1:4174/";
 const catImages = CAT_TYPES.map((cat) => loadCatImage(cat.image));
+const catImageMetrics = CAT_TYPES.map(() => ({ ready: false, offsetX: 0, offsetY: 0, scale: 1 }));
 const AUDIO_SOURCES = {
   drop: "assets/audio/drop.mp3",
   merge: "assets/audio/merge.mp3",
@@ -70,6 +75,7 @@ const AUDIO_SOURCES = {
 let engine;
 let render;
 let runner;
+let physicsRunning = false;
 let width = 0;
 let height = 0;
 let walls = [];
@@ -85,6 +91,7 @@ let effectParticles = [];
 let shakeUntil = 0;
 let shakePower = 0;
 let gameStarted = false;
+let isPaused = false;
 let isStarting = false;
 let titleTimers = [];
 let audioSettings = loadAudioSettings();
@@ -113,6 +120,7 @@ function loadCatImage(fileName) {
   image.decoding = "async";
   image.src = `${LOCAL_CAT_ASSET_DIR}${fileName}`;
   image.addEventListener("load", () => {
+    measureCatImage(fileName, image);
     if (nextPreviewCanvas) drawNextPreview();
   });
   image.addEventListener("error", () => {
@@ -121,6 +129,43 @@ function loadCatImage(fileName) {
     image.src = `${GENERATED_CAT_ASSET_DIR}${fileName}`;
   });
   return image;
+}
+
+function measureCatImage(fileName, image) {
+  const index = CAT_TYPES.findIndex((cat) => cat.image === fileName);
+  if (index < 0) return;
+  const size = 128;
+  const scratch = document.createElement("canvas");
+  scratch.width = size;
+  scratch.height = size;
+  const context = scratch.getContext("2d", { willReadFrequently: true });
+  context.drawImage(image, 0, 0, size, size);
+  const data = context.getImageData(0, 0, size, size).data;
+  let minX = size;
+  let minY = size;
+  let maxX = 0;
+  let maxY = 0;
+
+  for (let y = 0; y < size; y += 1) {
+    for (let x = 0; x < size; x += 1) {
+      if (data[(y * size + x) * 4 + 3] < 24) continue;
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x);
+      maxY = Math.max(maxY, y);
+    }
+  }
+
+  if (minX >= maxX || minY >= maxY) return;
+  const centerX = (minX + maxX) / 2;
+  const centerY = (minY + maxY) / 2;
+  const contentSize = Math.max(maxX - minX + 1, maxY - minY + 1);
+  catImageMetrics[index] = {
+    ready: true,
+    offsetX: (size / 2 - centerX) / size,
+    offsetY: (size / 2 - centerY) / size,
+    scale: size / contentSize,
+  };
 }
 
 function loadAudioSettings() {
@@ -166,16 +211,16 @@ function createAudio(src, loop) {
 }
 
 function applyAudioSettingsToUi() {
-  for (const button of [toggleBgmButton, titleToggleBgmButton]) {
+  for (const button of [toggleBgmButton, titleToggleBgmButton].filter(Boolean)) {
     button.textContent = audioSettings.bgmOn ? "BGM ON" : "BGM OFF";
     button.setAttribute("aria-pressed", String(audioSettings.bgmOn));
   }
-  for (const button of [toggleSeButton, titleToggleSeButton]) {
+  for (const button of [toggleSeButton, titleToggleSeButton].filter(Boolean)) {
     button.textContent = audioSettings.seOn ? "SE ON" : "SE OFF";
     button.setAttribute("aria-pressed", String(audioSettings.seOn));
   }
-  bgmVolumeInput.value = String(audioSettings.bgmVolume);
-  seVolumeInput.value = String(audioSettings.seVolume);
+  if (bgmVolumeInput) bgmVolumeInput.value = String(audioSettings.bgmVolume);
+  if (seVolumeInput) seVolumeInput.value = String(audioSettings.seVolume);
   if (bgmAudio) bgmAudio.volume = audioSettings.bgmOn ? audioSettings.bgmVolume : 0;
 }
 
@@ -311,6 +356,7 @@ function setup() {
   Events.on(engine, "afterUpdate", checkGameOver);
   Render.run(render);
   Runner.run(runner, engine);
+  physicsRunning = true;
 }
 
 function createWalls() {
@@ -349,7 +395,7 @@ function setAim(clientOrLocalX) {
 }
 
 function dropCat() {
-  if (!gameStarted || !canDrop || isGameOver) return;
+  if (!gameStarted || isPaused || !canDrop || isGameOver) return;
   canDrop = false;
   const cat = createCat(nextType, pointerX, DROP_Y);
   Composite.add(engine.world, cat);
@@ -430,7 +476,7 @@ function updateHud() {
 }
 
 function checkGameOver() {
-  if (isGameOver || engine.timing.timestamp < 1500) return;
+  if (isPaused || isGameOver || engine.timing.timestamp < 1500) return;
   const cats = Composite.allBodies(engine.world).filter((body) => body.label === "cat");
   const danger = cats.some((cat) => {
     const age = engine.timing.timestamp - cat.spawnedAt;
@@ -443,6 +489,7 @@ function checkGameOver() {
 function endGame() {
   isGameOver = true;
   canDrop = false;
+  pauseButton.hidden = true;
   playSe("gameOver");
   finalScoreEl.textContent = `SCORE ${score}`;
   messageEl.classList.remove("hidden");
@@ -451,6 +498,7 @@ function endGame() {
 function restart() {
   isStarting = false;
   gameStarted = true;
+  setPaused(false);
   score = 0;
   isGameOver = false;
   canDrop = true;
@@ -460,11 +508,69 @@ function restart() {
   shakePower = 0;
   messageEl.classList.add("hidden");
   titleScreenEl.classList.add("hidden");
+  pauseButton.hidden = false;
   Composite.clear(engine.world, false);
   createWalls();
   nextType = randomStartType();
   updateHud();
   setAim(width / 2);
+  updateBgmPlayback();
+}
+
+function setPaused(paused) {
+  isPaused = paused;
+  if (paused) {
+    pausePhysics();
+  } else {
+    resumePhysics();
+  }
+  pauseScreenEl.classList.toggle("hidden", !paused);
+  pauseButton.hidden = paused || !gameStarted || isGameOver;
+}
+
+function pausePhysics() {
+  if (!runner || !physicsRunning) return;
+  Runner.stop?.(runner);
+  physicsRunning = false;
+}
+
+function resumePhysics() {
+  if (!runner || !engine || physicsRunning) return;
+  Runner.run(runner, engine);
+  physicsRunning = true;
+}
+
+function openPause() {
+  if (!gameStarted || isGameOver || isPaused) return;
+  playSe("button");
+  setPaused(true);
+}
+
+function resumeGame() {
+  playSe("button");
+  setPaused(false);
+}
+
+function backToTitle() {
+  playSe("button");
+  setPaused(false);
+  gameStarted = false;
+  isGameOver = false;
+  canDrop = false;
+  score = 0;
+  mergingPairs.clear();
+  effectParticles = [];
+  shakeUntil = 0;
+  shakePower = 0;
+  messageEl.classList.add("hidden");
+  pauseScreenEl.classList.add("hidden");
+  titleScreenEl.classList.remove("hidden");
+  pauseButton.hidden = true;
+  if (engine) {
+    Composite.clear(engine.world, false);
+    createWalls();
+  }
+  updateHud();
   updateBgmPlayback();
 }
 
@@ -708,12 +814,16 @@ function drawNextPreview() {
 function drawCatImage(context, type, r) {
   const image = catImages[type];
   if (!image?.complete || !image.naturalWidth) return false;
+  const metrics = catImageMetrics[type];
+  const drawSize = r * 2 * (metrics.ready ? metrics.scale : 1);
+  const offsetX = metrics.ready ? metrics.offsetX * drawSize : 0;
+  const offsetY = metrics.ready ? metrics.offsetY * drawSize : 0;
 
   context.save();
   context.beginPath();
   context.arc(0, 0, r - 1, 0, Math.PI * 2);
   context.clip();
-  context.drawImage(image, -r, -r, r * 2, r * 2);
+  context.drawImage(image, -drawSize / 2 + offsetX, -drawSize / 2 + offsetY, drawSize, drawSize);
   context.restore();
   return true;
 }
@@ -958,26 +1068,29 @@ function resizeGame() {
   });
 }
 
-wrap.addEventListener("pointermove", handlePointer, { passive: true });
 wrap.addEventListener("pointerdown", (event) => {
+  if (event.target.closest("button") || !pauseScreenEl.classList.contains("hidden") || !messageEl.classList.contains("hidden")) {
+    return;
+  }
   handlePointer(event);
+  dropCat();
 }, { passive: true });
-wrap.addEventListener("click", (event) => {
-  if (event.target.closest("button") || isGameOver) return;
-  dropCat();
-});
-dropButton.addEventListener("click", () => {
-  playSe("button");
-  dropCat();
-});
+wrap.addEventListener("pointermove", handlePointer, { passive: true });
 restartButton.addEventListener("click", () => {
   playSe("button");
   restart();
 });
 startGameButton.addEventListener("click", startGame);
-toggleBgmButton.addEventListener("click", toggleBgmSetting);
+pauseButton.addEventListener("click", openPause);
+resumeGameButton.addEventListener("click", resumeGame);
+retryGameButton.addEventListener("click", () => {
+  playSe("button");
+  restart();
+});
+backToTitleButton.addEventListener("click", backToTitle);
+toggleBgmButton?.addEventListener("click", toggleBgmSetting);
 titleToggleBgmButton.addEventListener("click", toggleBgmSetting);
-toggleSeButton.addEventListener("click", toggleSeSetting);
+toggleSeButton?.addEventListener("click", toggleSeSetting);
 titleToggleSeButton.addEventListener("click", toggleSeSetting);
 bgmVolumeInput.addEventListener("input", () => {
   audioSettings.bgmVolume = Number(bgmVolumeInput.value);
@@ -1055,6 +1168,7 @@ function createMatterFallback() {
   }
 
   function step(engine, delta) {
+    if (engine.isPaused) return;
     const bodies = engine.world.bodies;
     const cats = bodies.filter((body) => !body.isStatic && body.kind === "circle");
     const pairs = [];
@@ -1174,16 +1288,24 @@ function createMatterFallback() {
     },
     Runner: {
       create() {
-        return {};
+        return { frame: 0, running: false };
       },
       run(runner, engine) {
+        if (runner.running) return;
+        runner.running = true;
         let last = performance.now();
         const loop = (now) => {
+          if (!runner.running) return;
           step(engine, Math.min(32, now - last));
           last = now;
           runner.frame = requestAnimationFrame(loop);
         };
         runner.frame = requestAnimationFrame(loop);
+      },
+      stop(runner) {
+        runner.running = false;
+        if (runner.frame) cancelAnimationFrame(runner.frame);
+        runner.frame = 0;
       },
     },
     Bodies: {
