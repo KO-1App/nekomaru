@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+    <title>ねこまる</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <main class="app" aria-label="ねこまる">
+      <section id="titleScreen" class="title-screen" aria-label="タイトル画面">
+        <div class="title-mark">
+          <div id="titleMascot" class="title-mascot" aria-hidden="true">
+            <span class="title-sparkle title-sparkle-a"></span>
+            <span class="title-sparkle title-sparkle-b"></span>
+            <span class="title-sparkle title-sparkle-c"></span>
+            <span class="title-sparkle title-sparkle-d"></span>
+            <img id="titleMascotOpen" class="title-mascot-img is-visible" src="./assets/title/nekomaru_king_open.png" alt="" />
+            <img id="titleMascotSmile" class="title-mascot-img" src="./assets/title/nekomaru_king_smile.png" alt="" />
+          </div>
+          <h1>ねこまる</h1>
+          <p>ぽふっと合体</p>
+        </div>
+        <div class="title-best">
+          <span class="label">BEST</span>
+          <strong id="titleBest">0</strong>
+        </div>
+        <div class="title-sound">
+          <button id="titleToggleBgm" class="sound-toggle" type="button" aria-pressed="true">BGM ON</button>
+          <button id="titleToggleSe" class="sound-toggle" type="button" aria-pressed="true">SE ON</button>
+        </div>
+        <button id="startGame" class="start-button" type="button">はじめる</button>
+      </section>
+
+      <section class="hud" aria-label="スコア">
+        <div>
+          <span class="label">SCORE</span>
+          <strong id="score">0</strong>
+        </div>
+        <h1>ねこまる</h1>
+        <div>
+          <span class="label">BEST</span>
+          <strong id="best">0</strong>
+        </div>
+      </section>
+
+      <section class="game-wrap">
+        <canvas id="game" aria-label="ゲーム画面"></canvas>
+        <div class="next-panel" aria-label="次の猫">
+          <span>NEXT</span>
+          <canvas id="nextPreview" width="56" height="56" aria-hidden="true"></canvas>
+          <div id="nextCat" class="next-cat">白猫</div>
+        </div>
+        <div id="aim" class="aim" aria-hidden="true"></div>
+        <div id="message" class="message hidden">
+          <h2>GAME OVER</h2>
+          <p id="finalScore">SCORE 0</p>
+          <button id="restart" type="button">もういちど遊ぶ</button>
+        </div>
+      </section>
+
+      <section class="controls" aria-label="操作">
+        <button id="drop" type="button">落とす</button>
+        <div class="audio-controls" aria-label="音量設定">
+          <button id="toggleBgm" class="sound-toggle" type="button" aria-pressed="true">BGM ON</button>
+          <label>
+            <span>BGM</span>
+            <input id="bgmVolume" type="range" min="0" max="1" step="0.05" value="0.45" />
+          </label>
+          <button id="toggleSe" class="sound-toggle" type="button" aria-pressed="true">SE ON</button>
+          <label>
+            <span>SE</span>
+            <input id="seVolume" type="range" min="0" max="1" step="0.05" value="0.7" />
+          </label>
+        </div>
+      </section>
+    </main>
+
+    <script src="https://cdn.jsdelivr.net/npm/matter-js@0.20.0/build/matter.min.js"></script>
+    <script src="./main.js"></script>
+  </body>
+</html>
