@@ -44,6 +44,8 @@ const backToTitleButton = document.querySelector("#backToTitle");
 
 const STORAGE_KEY = "nekomaru.bestScore";
 const AUDIO_STORAGE_KEY = "nekomaru.audioSettings";
+const BOARD_WIDTH = 420;
+const BOARD_HEIGHT = 620;
 const DROP_Y = 34;
 const CAT_TYPES = [
   { name: "白猫", radius: 25, color: "#fff9ef", text: "#4b3a2e", score: 1, image: "01-white-cat.png" },
@@ -75,8 +77,8 @@ let engine;
 let render;
 let runner;
 let physicsRunning = false;
-let width = 0;
-let height = 0;
+let width = BOARD_WIDTH;
+let height = BOARD_HEIGHT;
 let walls = [];
 let score = 0;
 let best = Number(localStorage.getItem(STORAGE_KEY) || 0);
@@ -115,6 +117,15 @@ function getGameOverY() {
   const cssValue = getComputedStyle(document.documentElement).getPropertyValue("--game-over-y");
   const parsed = Number.parseFloat(cssValue);
   return Number.isFinite(parsed) ? parsed : 160;
+}
+
+function updateLayoutScale() {
+  const appEl = document.querySelector(".app");
+  if (!appEl) return;
+  const viewportWidth = window.visualViewport?.width || window.innerWidth;
+  const viewportHeight = window.visualViewport?.height || window.innerHeight;
+  const scale = Math.min(1, viewportWidth / appEl.offsetWidth, viewportHeight / appEl.offsetHeight);
+  document.documentElement.style.setProperty("--app-scale", String(Math.max(0.1, scale)));
 }
 
 function randomStartType() {
@@ -322,9 +333,9 @@ function stopSyntheticBgm() {
 }
 
 function setup() {
-  const rect = wrap.getBoundingClientRect();
-  width = Math.floor(rect.width);
-  height = Math.floor(rect.height);
+  updateLayoutScale();
+  width = BOARD_WIDTH;
+  height = BOARD_HEIGHT;
   pointerX = pointerX || width / 2;
   canvas.width = width * devicePixelRatio;
   canvas.height = height * devicePixelRatio;
@@ -1085,25 +1096,7 @@ function wrapText(context, text, x, y, maxWidth, lineHeight) {
 function resizeGame() {
   cancelAnimationFrame(rafId);
   rafId = requestAnimationFrame(() => {
-    if (!engine) return;
-    const rect = wrap.getBoundingClientRect();
-    const newWidth = Math.floor(rect.width);
-    const newHeight = Math.floor(rect.height);
-    if (Math.abs(newWidth - width) < 2 && Math.abs(newHeight - height) < 2) return;
-    width = newWidth;
-    height = newHeight;
-    if (engine.bounds) {
-      engine.bounds.width = width;
-      engine.bounds.height = height;
-    }
-    render.options.width = width;
-    render.options.height = height;
-    render.canvas.width = width * devicePixelRatio;
-    render.canvas.height = height * devicePixelRatio;
-    render.canvas.style.width = `${width}px`;
-    render.canvas.style.height = `${height}px`;
-    Composite.remove(engine.world, walls);
-    createWalls();
+    updateLayoutScale();
     setAim(pointerX);
   });
 }
@@ -1143,6 +1136,7 @@ seVolumeInput.addEventListener("input", () => {
 document.addEventListener("pointerdown", unlockAudio, { passive: true });
 window.addEventListener("resize", resizeGame);
 window.addEventListener("orientationchange", resizeGame);
+window.visualViewport?.addEventListener("resize", resizeGame);
 
   setup();
 
