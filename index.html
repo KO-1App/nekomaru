@@ -46,6 +46,7 @@
 
       <section class="game-wrap">
         <canvas id="game" aria-label="ゲーム画面"></canvas>
+        <button id="pauseButton" class="pause-button" type="button" aria-label="ポーズ" hidden>II</button>
         <div class="next-panel" aria-label="次の猫">
           <span>NEXT</span>
           <canvas id="nextPreview" width="56" height="56" aria-hidden="true"></canvas>
@@ -57,20 +58,33 @@
           <p id="finalScore">SCORE 0</p>
           <button id="restart" type="button">もういちど遊ぶ</button>
         </div>
+        <div id="pauseScreen" class="pause-screen hidden" aria-label="ポーズ画面">
+          <div class="pause-panel">
+            <h2>PAUSE</h2>
+            <button id="resumeGame" type="button">ゲームに戻る</button>
+            <button id="retryGame" type="button">やりなおす</button>
+            <button id="backToTitle" type="button">タイトルへ戻る</button>
+            <label>
+              <span>BGM</span>
+              <input id="bgmVolume" type="range" min="0" max="1" step="0.05" value="0.45" />
+            </label>
+            <label>
+              <span>SE</span>
+              <input id="seVolume" type="range" min="0" max="1" step="0.05" value="0.7" />
+            </label>
+          </div>
+        </div>
       </section>
 
       <section class="controls" aria-label="操作">
-        <button id="drop" type="button">落とす</button>
-        <div class="audio-controls" aria-label="音量設定">
-          <button id="toggleBgm" class="sound-toggle" type="button" aria-pressed="true">BGM ON</button>
+        <div class="audio-controls" aria-label="音量設定" hidden>
           <label>
             <span>BGM</span>
-            <input id="bgmVolume" type="range" min="0" max="1" step="0.05" value="0.45" />
+            <input type="range" min="0" max="1" step="0.05" value="0.45" />
           </label>
-          <button id="toggleSe" class="sound-toggle" type="button" aria-pressed="true">SE ON</button>
           <label>
             <span>SE</span>
-            <input id="seVolume" type="range" min="0" max="1" step="0.05" value="0.7" />
+            <input type="range" min="0" max="1" step="0.05" value="0.7" />
           </label>
         </div>
       </section>
