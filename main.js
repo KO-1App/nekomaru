@@ -45,7 +45,6 @@ const backToTitleButton = document.querySelector("#backToTitle");
 const STORAGE_KEY = "nekomaru.bestScore";
 const AUDIO_STORAGE_KEY = "nekomaru.audioSettings";
 const DROP_Y = 34;
-const GAME_OVER_Y = 160;
 const CAT_TYPES = [
   { name: "白猫", radius: 25, color: "#fff9ef", text: "#4b3a2e", score: 1, image: "01-white-cat.png" },
   { name: "黒猫", radius: 30, color: "#2b2828", text: "#ffffff", score: 3, image: "02-black-cat.png" },
@@ -59,8 +58,7 @@ const CAT_TYPES = [
   { name: "ねこだま王", radius: 102, color: "#f2d45c", text: "#4d3900", score: 60, image: "10-nekodama-king.png" },
 ];
 
-const LOCAL_CAT_ASSET_DIR = "assets/cats/";
-const GENERATED_CAT_ASSET_DIR = "http://127.0.0.1:4174/";
+const CAT_ASSET_DIR = "assets/cats/";
 const catImages = CAT_TYPES.map((cat) => loadCatImage(cat.image));
 const catImageMetrics = CAT_TYPES.map(() => ({ ready: false, offsetX: 0, offsetY: 0, scale: 1 }));
 const AUDIO_SOURCES = {
@@ -113,6 +111,12 @@ function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 
+function getGameOverY() {
+  const cssValue = getComputedStyle(document.documentElement).getPropertyValue("--game-over-y");
+  const parsed = Number.parseFloat(cssValue);
+  return Number.isFinite(parsed) ? parsed : 160;
+}
+
 function randomStartType() {
   return Math.floor(Math.random() * 4);
 }
@@ -120,15 +124,10 @@ function randomStartType() {
 function loadCatImage(fileName) {
   const image = new Image();
   image.decoding = "async";
-  image.src = `${LOCAL_CAT_ASSET_DIR}${fileName}`;
+  image.src = `${CAT_ASSET_DIR}${fileName}`;
   image.addEventListener("load", () => {
     measureCatImage(fileName, image);
     if (nextPreviewCanvas) drawNextPreview();
-  });
-  image.addEventListener("error", () => {
-    if (image.dataset.fallbackTried) return;
-    image.dataset.fallbackTried = "true";
-    image.src = `${GENERATED_CAT_ASSET_DIR}${fileName}`;
   });
   return image;
 }
@@ -520,7 +519,7 @@ function checkGameOver() {
   const danger = cats.some((cat) => {
     const age = engine.timing.timestamp - cat.spawnedAt;
     const slow = Math.abs(cat.velocity.y) < 0.2 && Math.abs(cat.velocity.x) < 0.2;
-    return age > 1500 && slow && cat.position.y - CAT_TYPES[cat.catType].radius < GAME_OVER_Y;
+    return age > 1500 && slow && cat.position.y - CAT_TYPES[cat.catType].radius < getGameOverY();
   });
   if (danger) endGame();
 }
