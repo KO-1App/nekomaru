@@ -29,7 +29,16 @@
           <button id="titleToggleBgm" class="sound-toggle" type="button" aria-pressed="true">BGM ON</button>
           <button id="titleToggleSe" class="sound-toggle" type="button" aria-pressed="true">SE ON</button>
         </div>
+        <button id="openRanking" class="title-sub-button" type="button">ランキング</button>
         <button id="startGame" class="start-button" type="button">はじめる</button>
+        <div id="rankingPanel" class="ranking-panel hidden" aria-label="ランキング画面">
+          <div class="ranking-card">
+            <h2>オンラインランキング</h2>
+            <p id="rankingStatus" class="ranking-status" aria-live="polite"></p>
+            <ol id="rankingList" class="ranking-list"></ol>
+            <button id="closeRanking" type="button">閉じる</button>
+          </div>
+        </div>
       </section>
 
       <section class="hud" aria-label="スコア">
@@ -56,6 +65,14 @@
         <div id="message" class="message hidden">
           <h2>GAME OVER</h2>
           <p id="finalScore">SCORE 0</p>
+          <p id="finalMaxCat">最大到達：白猫</p>
+          <form id="onlineRankingForm" class="online-ranking-form">
+            <label for="playerName">NAME</label>
+            <input id="playerName" type="text" maxlength="12" autocomplete="nickname" inputmode="text" placeholder="なまえ" />
+            <button id="submitOnlineRanking" type="submit">ランキングに送信</button>
+            <p id="onlineRankingStatus" aria-live="polite"></p>
+          </form>
+          <button id="copyShareText" type="button">投稿用テキストをコピー</button>
           <button id="restart" type="button">もういちど遊ぶ</button>
         </div>
         <div id="pauseScreen" class="pause-screen hidden" aria-label="ポーズ画面">
@@ -86,6 +103,7 @@
     </main>
 
     <script src="./vendor/matter.min.js"></script>
+    <script src="./supabase-config.js"></script>
     <script src="./main.js"></script>
   </body>
 </html>

@@ -30,6 +30,17 @@ const titleMascotSmileEl = document.querySelector("#titleMascotSmile");
 const titleBestEl = document.querySelector("#titleBest");
 const startGameButton = document.querySelector("#startGame");
 const restartButton = document.querySelector("#restart");
+const openRankingButton = document.querySelector("#openRanking");
+const rankingPanelEl = document.querySelector("#rankingPanel");
+const rankingListEl = document.querySelector("#rankingList");
+const rankingStatusEl = document.querySelector("#rankingStatus");
+const closeRankingButton = document.querySelector("#closeRanking");
+const finalMaxCatEl = document.querySelector("#finalMaxCat");
+const copyShareTextButton = document.querySelector("#copyShareText");
+const onlineRankingForm = document.querySelector("#onlineRankingForm");
+const playerNameInput = document.querySelector("#playerName");
+const submitOnlineRankingButton = document.querySelector("#submitOnlineRanking");
+const onlineRankingStatusEl = document.querySelector("#onlineRankingStatus");
 const toggleBgmButton = document.querySelector("#toggleBgm");
 const toggleSeButton = document.querySelector("#toggleSe");
 const titleToggleBgmButton = document.querySelector("#titleToggleBgm");
@@ -44,9 +55,12 @@ const backToTitleButton = document.querySelector("#backToTitle");
 
 const STORAGE_KEY = "nekomaru.bestScore";
 const AUDIO_STORAGE_KEY = "nekomaru.audioSettings";
+const RANKING_STORAGE_KEY = "nekomaru.localRanking";
 const BOARD_WIDTH = 420;
 const BOARD_HEIGHT = 620;
 const DROP_Y = 34;
+const SUPABASE_CONFIG = window.NEKOMARU_SUPABASE || {};
+const ONLINE_RANKING_LIMIT = 100;
 const CAT_TYPES = [
   { name: "白猫", radius: 25, color: "#fff9ef", text: "#4b3a2e", score: 1, image: "01-white-cat.png" },
   { name: "黒猫", radius: 30, color: "#2b2828", text: "#ffffff", score: 3, image: "02-black-cat.png" },
@@ -83,6 +97,7 @@ let walls = [];
 let score = 0;
 let best = Number(localStorage.getItem(STORAGE_KEY) || 0);
 let nextType = 0;
+let maxReachedType = 0;
 let pointerX = 0;
 let canDrop = true;
 let isGameOver = false;
@@ -102,6 +117,8 @@ let audioUnlocked = false;
 let bgmAudio = null;
 let bgmTimer = 0;
 let sePools = {};
+let lastShareText = "";
+let onlineRankingSubmitted = false;
 
 bestEl.textContent = best;
 titleBestEl.textContent = best;
@@ -200,6 +217,254 @@ function saveAudioSettings() {
   } catch {
     // Storage can be unavailable in private modes; audio still works for the session.
   }
+}
+
+function loadRanking() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(RANKING_STORAGE_KEY) || "[]");
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((entry) => Number.isFinite(entry?.score) && Number.isInteger(entry?.maxCat) && entry.maxCat >= 0)
+      .map((entry) => ({
+        score: Math.max(0, Math.floor(entry.score)),
+        maxCat: clamp(entry.maxCat, 0, CAT_TYPES.length - 1),
+        date: typeof entry.date === "string" ? entry.date : new Date().toISOString(),
+      }))
+      .sort(sortRanking)
+      .slice(0, 10);
+  } catch {
+    return [];
+  }
+}
+
+function sortRanking(a, b) {
+  if (b.score !== a.score) return b.score - a.score;
+  return new Date(b.date).getTime() - new Date(a.date).getTime();
+}
+
+function saveRankingRecord() {
+  const entry = {
+    score,
+    maxCat: maxReachedType,
+    date: new Date().toISOString(),
+  };
+  const ranking = [...loadRanking(), entry].sort(sortRanking).slice(0, 10);
+  try {
+    localStorage.setItem(RANKING_STORAGE_KEY, JSON.stringify(ranking));
+  } catch {
+    // Ranking is optional; the game over flow should never fail because storage is unavailable.
+  }
+  if (!rankingPanelEl.classList.contains("hidden")) renderRanking();
+}
+
+function isSupabaseConfigured() {
+  return Boolean(SUPABASE_CONFIG.restUrl && SUPABASE_CONFIG.publishableKey && SUPABASE_CONFIG.tableName);
+}
+
+function getSupabaseTableUrl(query = "") {
+  const base = String(SUPABASE_CONFIG.restUrl || "").replace(/\/+$/, "");
+  const tableName = encodeURIComponent(SUPABASE_CONFIG.tableName || "");
+  return `${base}/${tableName}${query}`;
+}
+
+function getSupabaseHeaders(extra = {}) {
+  const key = SUPABASE_CONFIG.publishableKey;
+  return {
+    apikey: key,
+    Authorization: `Bearer ${key}`,
+    ...extra,
+  };
+}
+
+async function fetchOnlineRanking() {
+  if (!isSupabaseConfigured()) throw new Error("Supabase is not configured.");
+  const query = `?select=name,score,max_cat,created_at&order=score.desc,created_at.desc&limit=${ONLINE_RANKING_LIMIT}`;
+  const response = await fetch(getSupabaseTableUrl(query), {
+    method: "GET",
+    headers: getSupabaseHeaders(),
+  });
+  if (!response.ok) throw new Error(`Ranking fetch failed: ${response.status}`);
+  const rows = await response.json();
+  if (!Array.isArray(rows)) return [];
+  return rows
+    .filter((row) => Number.isInteger(row?.score) && row.score >= 0)
+    .map((row) => ({
+      name: String(row.name || "ななし").slice(0, 12),
+      score: row.score,
+      maxCat: String(row.max_cat || "白猫"),
+      date: typeof row.created_at === "string" ? row.created_at : "",
+    }));
+}
+
+function validateOnlineRankingName(name) {
+  const trimmed = name.trim();
+  if (!trimmed) return { ok: false, message: "名前を入力してください" };
+  if ([...trimmed].length > 12) return { ok: false, message: "名前は12文字までです" };
+  return { ok: true, value: trimmed };
+}
+
+function validateOnlineRankingScore(value) {
+  if (!Number.isInteger(value) || value < 0) {
+    return { ok: false, message: "スコアが正しくありません" };
+  }
+  return { ok: true, value };
+}
+
+async function submitOnlineRanking(event) {
+  event.preventDefault();
+  playSe("button");
+  if (onlineRankingSubmitted) {
+    onlineRankingStatusEl.textContent = "送信済みです";
+    return;
+  }
+  onlineRankingStatusEl.textContent = "";
+  const nameResult = validateOnlineRankingName(playerNameInput.value);
+  if (!nameResult.ok) {
+    onlineRankingStatusEl.textContent = nameResult.message;
+    return;
+  }
+  const scoreResult = validateOnlineRankingScore(score);
+  if (!scoreResult.ok) {
+    onlineRankingStatusEl.textContent = scoreResult.message;
+    return;
+  }
+  if (!isSupabaseConfigured()) {
+    onlineRankingStatusEl.textContent = "オンラインランキングは未設定です";
+    return;
+  }
+
+  submitOnlineRankingButton.disabled = true;
+  submitOnlineRankingButton.textContent = "送信中";
+  try {
+    const payload = {
+      name: nameResult.value,
+      score: scoreResult.value,
+      max_cat: CAT_TYPES[maxReachedType].name,
+      created_at: new Date().toISOString(),
+    };
+    const response = await fetch(getSupabaseTableUrl(), {
+      method: "POST",
+      headers: getSupabaseHeaders({
+        "Content-Type": "application/json",
+        Prefer: "return=minimal",
+      }),
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) throw new Error(`Ranking submit failed: ${response.status}`);
+    onlineRankingSubmitted = true;
+    onlineRankingStatusEl.textContent = "送信しました";
+    submitOnlineRankingButton.textContent = "送信済み";
+    playerNameInput.blur();
+    renderRanking();
+  } catch {
+    onlineRankingStatusEl.textContent = "送信できませんでした";
+  } finally {
+    submitOnlineRankingButton.disabled = onlineRankingSubmitted;
+    if (!onlineRankingSubmitted) submitOnlineRankingButton.textContent = "ランキングに送信";
+  }
+}
+
+function formatRankingDate(isoDate) {
+  const date = new Date(isoDate);
+  if (Number.isNaN(date.getTime())) return "";
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  const h = String(date.getHours()).padStart(2, "0");
+  const min = String(date.getMinutes()).padStart(2, "0");
+  return `${y}/${m}/${d} ${h}:${min}`;
+}
+
+function appendRankingEntries(entries, options = {}) {
+  if (!rankingListEl) return;
+  rankingListEl.replaceChildren();
+  if (!entries.length) {
+    const empty = document.createElement("li");
+    empty.className = "ranking-empty";
+    empty.textContent = "まだ記録がありません";
+    rankingListEl.append(empty);
+    return;
+  }
+  entries.forEach((entry, index) => {
+    const item = document.createElement("li");
+    const rank = document.createElement("span");
+    const body = document.createElement("span");
+    const nameText = document.createElement("span");
+    const scoreText = document.createElement("span");
+    const meta = document.createElement("span");
+    rank.className = "ranking-rank";
+    body.className = "ranking-body";
+    nameText.className = "ranking-name";
+    scoreText.className = "ranking-score";
+    meta.className = "ranking-meta";
+    rank.textContent = `${index + 1}`;
+    nameText.textContent = options.online ? entry.name : "LOCAL";
+    scoreText.textContent = `SCORE ${entry.score}`;
+    meta.textContent = `${options.online ? entry.maxCat : CAT_TYPES[entry.maxCat].name} / ${formatRankingDate(entry.date)}`;
+    body.append(nameText, scoreText, meta);
+    item.append(rank, body);
+    rankingListEl.append(item);
+  });
+}
+
+async function renderRanking() {
+  if (!rankingListEl) return;
+  rankingStatusEl.textContent = "";
+  if (!isSupabaseConfigured()) {
+    rankingStatusEl.textContent = "オンラインランキングは未設定です";
+    appendRankingEntries(loadRanking());
+    return;
+  }
+  rankingStatusEl.textContent = "読み込み中...";
+  try {
+    const entries = await fetchOnlineRanking();
+    rankingStatusEl.textContent = "上位100件";
+    appendRankingEntries(entries, { online: true });
+  } catch {
+    rankingStatusEl.textContent = "通信失敗。ローカル記録を表示中";
+    appendRankingEntries(loadRanking());
+  }
+}
+
+function getShareText() {
+  const catName = CAT_TYPES[maxReachedType].name;
+  const crown = maxReachedType === CAT_TYPES.length - 1 ? " 👑" : "";
+  return `ねこまる SCORE ${score} / 最大到達：${catName}${crown}`;
+}
+
+async function copyShareText() {
+  playSe("button");
+  const text = lastShareText || getShareText();
+  try {
+    if (!navigator.clipboard?.writeText) throw new Error("Clipboard API unavailable");
+    await navigator.clipboard.writeText(text);
+    copyShareTextButton.textContent = "コピーしました";
+  } catch {
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.setAttribute("readonly", "");
+    textarea.style.position = "fixed";
+    textarea.style.left = "-9999px";
+    document.body.append(textarea);
+    textarea.select();
+    const copied = document.execCommand("copy");
+    textarea.remove();
+    copyShareTextButton.textContent = copied ? "コピーしました" : "コピーできませんでした";
+  }
+  window.setTimeout(() => {
+    copyShareTextButton.textContent = "投稿用テキストをコピー";
+  }, 1400);
+}
+
+function openRanking() {
+  playSe("button");
+  renderRanking();
+  rankingPanelEl.classList.remove("hidden");
+}
+
+function closeRanking() {
+  playSe("button");
+  rankingPanelEl.classList.add("hidden");
 }
 
 function setupAudio() {
@@ -410,6 +675,7 @@ function setAim(clientOrLocalX) {
 function dropCat() {
   if (!gameStarted || isPaused || !canDrop || isGameOver) return;
   canDrop = false;
+  maxReachedType = Math.max(maxReachedType, nextType);
   const cat = createCat(nextType, pointerX, DROP_Y);
   Composite.add(engine.world, cat);
   playSe("drop");
@@ -487,6 +753,7 @@ function mergeCats(a, b, key) {
       return;
     }
     const next = a.catType + 1;
+    maxReachedType = Math.max(maxReachedType, next);
     const midpoint = Vector.mult(Vector.add(a.position, b.position), 0.5);
     Composite.remove(engine.world, [a, b]);
     const merged = createCat(next, midpoint.x, midpoint.y);
@@ -504,7 +771,11 @@ function mergeCats(a, b, key) {
     score += CAT_TYPES[next].score * 10;
     if (score > best) {
       best = score;
-      localStorage.setItem(STORAGE_KEY, String(best));
+      try {
+        localStorage.setItem(STORAGE_KEY, String(best));
+      } catch {
+        // Best score display still updates even if storage is unavailable.
+      }
       titleBestEl.textContent = best;
     }
     updateHud();
@@ -536,12 +807,21 @@ function checkGameOver() {
 }
 
 function endGame() {
+  if (isGameOver) return;
   isGameOver = true;
   canDrop = false;
   cancelDropZoneAim();
   pauseButton.hidden = true;
   playSe("gameOver");
+  lastShareText = getShareText();
+  onlineRankingSubmitted = false;
+  saveRankingRecord();
   finalScoreEl.textContent = `SCORE ${score}`;
+  finalMaxCatEl.textContent = `最大到達：${CAT_TYPES[maxReachedType].name}`;
+  copyShareTextButton.textContent = "投稿用テキストをコピー";
+  onlineRankingStatusEl.textContent = "";
+  submitOnlineRankingButton.disabled = false;
+  submitOnlineRankingButton.textContent = "ランキングに送信";
   messageEl.classList.remove("hidden");
 }
 
@@ -550,6 +830,9 @@ function restart() {
   gameStarted = true;
   setPaused(false);
   score = 0;
+  maxReachedType = 0;
+  lastShareText = "";
+  onlineRankingSubmitted = false;
   isGameOver = false;
   canDrop = true;
   mergingPairs.clear();
@@ -609,6 +892,9 @@ function backToTitle() {
   isGameOver = false;
   canDrop = false;
   score = 0;
+  maxReachedType = 0;
+  lastShareText = "";
+  onlineRankingSubmitted = false;
   mergingPairs.clear();
   effectParticles = [];
   shakeUntil = 0;
@@ -628,6 +914,7 @@ function backToTitle() {
 function startGame() {
   if (isStarting || gameStarted) return;
   isStarting = true;
+  rankingPanelEl.classList.add("hidden");
   unlockAudio();
   playSe("button");
   showTitleMascotSmile(260);
@@ -1111,6 +1398,10 @@ restartButton.addEventListener("click", () => {
   restart();
 });
 startGameButton.addEventListener("click", startGame);
+openRankingButton.addEventListener("click", openRanking);
+closeRankingButton.addEventListener("click", closeRanking);
+copyShareTextButton.addEventListener("click", copyShareText);
+onlineRankingForm.addEventListener("submit", submitOnlineRanking);
 pauseButton.addEventListener("click", openPause);
 resumeGameButton.addEventListener("click", resumeGame);
 retryGameButton.addEventListener("click", () => {
