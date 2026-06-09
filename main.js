@@ -31,11 +31,16 @@ const titleBestEl = document.querySelector("#titleBest");
 const startGameButton = document.querySelector("#startGame");
 const restartButton = document.querySelector("#restart");
 const openRankingButton = document.querySelector("#openRanking");
+const openTitleCollectionButton = document.querySelector("#openTitleCollection");
 const rankingPanelEl = document.querySelector("#rankingPanel");
 const rankingListEl = document.querySelector("#rankingList");
 const rankingStatusEl = document.querySelector("#rankingStatus");
 const closeRankingButton = document.querySelector("#closeRanking");
+const titleCollectionPanelEl = document.querySelector("#titleCollectionPanel");
+const titleCollectionListEl = document.querySelector("#titleCollectionList");
+const closeTitleCollectionButton = document.querySelector("#closeTitleCollection");
 const finalMaxCatEl = document.querySelector("#finalMaxCat");
+const finalTitleEl = document.querySelector("#finalTitle");
 const copyShareTextButton = document.querySelector("#copyShareText");
 const onlineRankingForm = document.querySelector("#onlineRankingForm");
 const playerNameInput = document.querySelector("#playerName");
@@ -56,11 +61,23 @@ const backToTitleButton = document.querySelector("#backToTitle");
 const STORAGE_KEY = "nekomaru.bestScore";
 const AUDIO_STORAGE_KEY = "nekomaru.audioSettings";
 const RANKING_STORAGE_KEY = "nekomaru.localRanking";
+const TITLE_COLLECTION_STORAGE_KEY = "nekomaru.earnedTitles";
 const BOARD_WIDTH = 420;
 const BOARD_HEIGHT = 620;
 const DROP_Y = 34;
 const SUPABASE_CONFIG = window.NEKOMARU_SUPABASE || {};
 const ONLINE_RANKING_LIMIT = 100;
+const SCORE_TITLES = [
+  { min: 45000, title: "ねこだま伝説" },
+  { min: 40000, title: "ねこだま神" },
+  { min: 35000, title: "ねこだま王" },
+  { min: 30000, title: "ねこだま勇者" },
+  { min: 25000, title: "ねこだま将軍" },
+  { min: 20000, title: "ねこだま達人" },
+  { min: 15000, title: "ねこだま使い" },
+  { min: 10000, title: "ねこだま見習い" },
+  { min: 0, title: "ねこだま初心者" },
+];
 const CAT_TYPES = [
   { name: "白猫", radius: 25, color: "#fff9ef", text: "#4b3a2e", score: 1, image: "01-white-cat.png" },
   { name: "黒猫", radius: 30, color: "#2b2828", text: "#ffffff", score: 3, image: "02-black-cat.png" },
@@ -95,7 +112,8 @@ let width = BOARD_WIDTH;
 let height = BOARD_HEIGHT;
 let walls = [];
 let score = 0;
-let best = Number(localStorage.getItem(STORAGE_KEY) || 0);
+let best = Math.max(0, Math.floor(Number(localStorage.getItem(STORAGE_KEY) || 0) || 0));
+let earnedTitleMins = loadEarnedTitleMins();
 let nextType = 0;
 let maxReachedType = 0;
 let pointerX = 0;
@@ -122,6 +140,7 @@ let onlineRankingSubmitted = false;
 
 bestEl.textContent = best;
 titleBestEl.textContent = best;
+syncTitleCollectionFromBest();
 
 setupAudio();
 setupTitleCatAnimation();
@@ -228,6 +247,7 @@ function loadRanking() {
       .map((entry) => ({
         score: Math.max(0, Math.floor(entry.score)),
         maxCat: clamp(entry.maxCat, 0, CAT_TYPES.length - 1),
+        title: typeof entry.title === "string" ? entry.title : getTitleByScore(entry.score),
         date: typeof entry.date === "string" ? entry.date : new Date().toISOString(),
       }))
       .sort(sortRanking)
@@ -246,6 +266,7 @@ function saveRankingRecord() {
   const entry = {
     score,
     maxCat: maxReachedType,
+    title: getTitleByScore(score),
     date: new Date().toISOString(),
   };
   const ranking = [...loadRanking(), entry].sort(sortRanking).slice(0, 10);
@@ -278,11 +299,18 @@ function getSupabaseHeaders(extra = {}) {
 
 async function fetchOnlineRanking() {
   if (!isSupabaseConfigured()) throw new Error("Supabase is not configured.");
-  const query = `?select=name,score,max_cat,created_at&order=score.desc,created_at.desc&limit=${ONLINE_RANKING_LIMIT}`;
-  const response = await fetch(getSupabaseTableUrl(query), {
+  const queryWithTitle = `?select=name,score,max_cat,title,created_at&order=score.desc,created_at.desc&limit=${ONLINE_RANKING_LIMIT}`;
+  const legacyQuery = `?select=name,score,max_cat,created_at&order=score.desc,created_at.desc&limit=${ONLINE_RANKING_LIMIT}`;
+  let response = await fetch(getSupabaseTableUrl(queryWithTitle), {
     method: "GET",
     headers: getSupabaseHeaders(),
   });
+  if (!response.ok) {
+    response = await fetch(getSupabaseTableUrl(legacyQuery), {
+      method: "GET",
+      headers: getSupabaseHeaders(),
+    });
+  }
   if (!response.ok) throw new Error(`Ranking fetch failed: ${response.status}`);
   const rows = await response.json();
   if (!Array.isArray(rows)) return [];
@@ -292,6 +320,7 @@ async function fetchOnlineRanking() {
       name: String(row.name || "ななし").slice(0, 12),
       score: row.score,
       maxCat: String(row.max_cat || "白猫"),
+      title: typeof row.title === "string" && row.title ? row.title : getTitleByScore(row.score),
       date: typeof row.created_at === "string" ? row.created_at : "",
     }));
 }
@@ -308,6 +337,57 @@ function validateOnlineRankingScore(value) {
     return { ok: false, message: "スコアが正しくありません" };
   }
   return { ok: true, value };
+}
+
+function getTitleByScore(value) {
+  const safeScore = Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
+  return SCORE_TITLES.find((item) => safeScore >= item.min)?.title || "ねこだま初心者";
+}
+
+function getTitleMilestones() {
+  return [...SCORE_TITLES].sort((a, b) => a.min - b.min);
+}
+
+function loadEarnedTitleMins() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(TITLE_COLLECTION_STORAGE_KEY) || "[]");
+    if (!Array.isArray(parsed)) return [];
+    const validMins = new Set(getTitleMilestones().map((item) => item.min));
+    return [...new Set(parsed.filter((value) => Number.isInteger(value) && validMins.has(value)))].sort((a, b) => a - b);
+  } catch {
+    return [];
+  }
+}
+
+function saveEarnedTitleMins() {
+  try {
+    localStorage.setItem(TITLE_COLLECTION_STORAGE_KEY, JSON.stringify(earnedTitleMins));
+  } catch {
+    // Title collection is cosmetic; gameplay should continue even if storage is unavailable.
+  }
+}
+
+function syncTitleCollectionFromBest() {
+  const earned = new Set(earnedTitleMins);
+  for (const item of getTitleMilestones()) {
+    if (best >= item.min) earned.add(item.min);
+  }
+  const next = [...earned].sort((a, b) => a - b);
+  const changed = next.length !== earnedTitleMins.length || next.some((value, index) => value !== earnedTitleMins[index]);
+  earnedTitleMins = next;
+  if (changed) saveEarnedTitleMins();
+}
+
+async function postOnlineRanking(payload) {
+  const response = await fetch(getSupabaseTableUrl(), {
+    method: "POST",
+    headers: getSupabaseHeaders({
+      "Content-Type": "application/json",
+      Prefer: "return=minimal",
+    }),
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) throw new Error(`Ranking submit failed: ${response.status}`);
 }
 
 async function submitOnlineRanking(event) {
@@ -340,17 +420,15 @@ async function submitOnlineRanking(event) {
       name: nameResult.value,
       score: scoreResult.value,
       max_cat: CAT_TYPES[maxReachedType].name,
+      title: getTitleByScore(scoreResult.value),
       created_at: new Date().toISOString(),
     };
-    const response = await fetch(getSupabaseTableUrl(), {
-      method: "POST",
-      headers: getSupabaseHeaders({
-        "Content-Type": "application/json",
-        Prefer: "return=minimal",
-      }),
-      body: JSON.stringify(payload),
-    });
-    if (!response.ok) throw new Error(`Ranking submit failed: ${response.status}`);
+    try {
+      await postOnlineRanking(payload);
+    } catch {
+      const { title, ...legacyPayload } = payload;
+      await postOnlineRanking(legacyPayload);
+    }
     onlineRankingSubmitted = true;
     onlineRankingStatusEl.textContent = "送信しました";
     submitOnlineRankingButton.textContent = "送信済み";
@@ -393,14 +471,19 @@ function appendRankingEntries(entries, options = {}) {
     const scoreText = document.createElement("span");
     const meta = document.createElement("span");
     rank.className = "ranking-rank";
+    if (index === 0) rank.classList.add("rank-gold");
+    if (index === 1) rank.classList.add("rank-silver");
+    if (index === 2) rank.classList.add("rank-bronze");
     body.className = "ranking-body";
     nameText.className = "ranking-name";
     scoreText.className = "ranking-score";
     meta.className = "ranking-meta";
-    rank.textContent = `${index + 1}`;
-    nameText.textContent = options.online ? entry.name : "LOCAL";
+    rank.textContent = index < 3 ? `${["👑", "♕", "♔"][index]} ${index + 1}` : `${index + 1}`;
+    const displayName = options.online ? entry.name : "LOCAL";
+    const displayTitle = entry.title || getTitleByScore(entry.score);
+    nameText.textContent = `${displayName} / ${displayTitle} / ${formatRankingDate(entry.date)}`;
     scoreText.textContent = `SCORE ${entry.score}`;
-    meta.textContent = `${options.online ? entry.maxCat : CAT_TYPES[entry.maxCat].name} / ${formatRankingDate(entry.date)}`;
+    meta.textContent = CAT_TYPES[entry.maxCat]?.name || entry.maxCat || "";
     body.append(nameText, scoreText, meta);
     item.append(rank, body);
     rankingListEl.append(item);
@@ -459,12 +542,51 @@ async function copyShareText() {
 function openRanking() {
   playSe("button");
   renderRanking();
+  titleCollectionPanelEl.classList.add("hidden");
   rankingPanelEl.classList.remove("hidden");
 }
 
 function closeRanking() {
   playSe("button");
   rankingPanelEl.classList.add("hidden");
+}
+
+function renderTitleCollection() {
+  if (!titleCollectionListEl) return;
+  syncTitleCollectionFromBest();
+  const earned = new Set(earnedTitleMins);
+  titleCollectionListEl.replaceChildren();
+  for (const item of getTitleMilestones()) {
+    const unlocked = earned.has(item.min);
+    const row = document.createElement("li");
+    const icon = document.createElement("span");
+    const name = document.createElement("span");
+    const required = document.createElement("span");
+
+    row.classList.toggle("is-locked", !unlocked);
+    icon.className = "title-collection-icon";
+    name.className = "title-collection-name";
+    required.className = "title-collection-score";
+
+    icon.textContent = unlocked ? "✅" : "🔒";
+    name.textContent = unlocked ? getTitleByScore(item.min) : "？？？？？";
+    required.textContent = `${item.min}点`;
+
+    row.append(icon, name, required);
+    titleCollectionListEl.append(row);
+  }
+}
+
+function openTitleCollection() {
+  playSe("button");
+  renderTitleCollection();
+  rankingPanelEl.classList.add("hidden");
+  titleCollectionPanelEl.classList.remove("hidden");
+}
+
+function closeTitleCollection() {
+  playSe("button");
+  titleCollectionPanelEl.classList.add("hidden");
 }
 
 function setupAudio() {
@@ -784,6 +906,7 @@ function mergeCats(a, b, key) {
 }
 
 function updateHud() {
+  syncTitleCollectionFromBest();
   scoreEl.textContent = score;
   bestEl.textContent = best;
   titleBestEl.textContent = best;
@@ -818,6 +941,7 @@ function endGame() {
   saveRankingRecord();
   finalScoreEl.textContent = `SCORE ${score}`;
   finalMaxCatEl.textContent = `最大到達：${CAT_TYPES[maxReachedType].name}`;
+  finalTitleEl.textContent = `称号：${getTitleByScore(score)}`;
   copyShareTextButton.textContent = "投稿用テキストをコピー";
   onlineRankingStatusEl.textContent = "";
   submitOnlineRankingButton.disabled = false;
@@ -1400,6 +1524,8 @@ restartButton.addEventListener("click", () => {
 startGameButton.addEventListener("click", startGame);
 openRankingButton.addEventListener("click", openRanking);
 closeRankingButton.addEventListener("click", closeRanking);
+openTitleCollectionButton.addEventListener("click", openTitleCollection);
+closeTitleCollectionButton.addEventListener("click", closeTitleCollection);
 copyShareTextButton.addEventListener("click", copyShareText);
 onlineRankingForm.addEventListener("submit", submitOnlineRanking);
 pauseButton.addEventListener("click", openPause);
