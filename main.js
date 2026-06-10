@@ -480,10 +480,9 @@ function appendRankingEntries(entries, options = {}) {
     meta.className = "ranking-meta";
     rank.textContent = index < 3 ? `${["👑", "♕", "♔"][index]} ${index + 1}` : `${index + 1}`;
     const displayName = options.online ? entry.name : "LOCAL";
-    const displayTitle = entry.title || getTitleByScore(entry.score);
-    nameText.textContent = `${displayName} / ${displayTitle} / ${formatRankingDate(entry.date)}`;
+    nameText.textContent = displayName;
     scoreText.textContent = `SCORE ${entry.score}`;
-    meta.textContent = CAT_TYPES[entry.maxCat]?.name || entry.maxCat || "";
+    meta.textContent = formatRankingDate(entry.date);
     body.append(nameText, scoreText, meta);
     item.append(rank, body);
     rankingListEl.append(item);
